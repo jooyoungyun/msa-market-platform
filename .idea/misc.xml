@@ -21,7 +21,9 @@
     </option>
     <option name="ignoredFiles">
       <set>
+        <option value="$PROJECT_DIR$/actuator-demo/pom.xml" />
         <option value="$PROJECT_DIR$/apigateway-service-no-config/pom.xml" />
+        <option value="$PROJECT_DIR$/config-service/pom.xml" />
         <option value="$PROJECT_DIR$/first-service/pom.xml" />
         <option value="$PROJECT_DIR$/second-service/pom.xml" />
         <option value="$PROJECT_DIR$/user-service-no-config/pom.xml" />

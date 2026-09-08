@@ -8,7 +8,7 @@ spring:
       enabled: false
   datasource:
     driver-class-name: org.mariadb.jdbc.Driver
-    url: jdbc:mariadb://localhost:3306/msa_ecommerce
+    url: ${DB_URL:jdbc:mariadb://localhost:3306/msa_ecommerce}
     username: ${DB_USERNAME:msa}
     password: ${DB_PASSWORD:msa1234}
   jpa:
@@ -27,10 +27,12 @@ spring:
 
 eureka:
   instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:127.0.0.1}
+    prefer-ip-address: false
     instance-id: ${spring.application.name}:${server.port}
   client:
     service-url:
-      defaultZone: http://127.0.0.1:8761/eureka
+      defaultZone: ${EUREKA_DEFAULT_ZONE:http://127.0.0.1:8761/eureka}
     fetch-registry: true
     register-with-eureka: true
 
@@ -58,3 +60,6 @@ management:
     web:
       exposure:
         include: refresh, health, beans, info, metrics, prometheus
+  health:
+    rabbit:
+      enabled: false

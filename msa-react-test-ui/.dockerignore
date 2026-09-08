@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.idea
+*.log
+npm-debug.log*
+
+# Legacy Vite files - Next.js Docker build does not use these
+vite.config.ts
+index.html
+src/main.tsx
+tsconfig.app.json
+tsconfig.node.json
+*.tsbuildinfo

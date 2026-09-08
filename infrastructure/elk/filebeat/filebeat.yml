@@ -3,7 +3,7 @@ filebeat.inputs:
     id: msa-market-application-logs
     enabled: true
     paths:
-      - /workspace/**/logs/*.json
+      - /logs/*/*.json
     parsers:
       - ndjson:
           target: ""
@@ -19,7 +19,7 @@ processors:
       target: labels
       fields:
         project: msa-market-platform
-        environment: local
+        environment: docker-local
 
 output.logstash:
   hosts: ["logstash:5044"]

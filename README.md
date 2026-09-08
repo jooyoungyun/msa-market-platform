@@ -1,219 +1,718 @@
 # MSA Market Platform
 
 Spring Cloud 기반 마이크로서비스 E-Commerce 플랫폼입니다.
-Kafka 이벤트로 주문과 재고를 동기화하고, **이벤트가 어느 단계까지 처리됐는지 화면에서 추적**할 수 있게 만든 것이 핵심입니다.
 
-`Java 11` `Spring Boot 2.4` `Spring Cloud 2020.0` `Kafka` `MariaDB` `Next.js 16` `ELK`
+단순히 주문/상품 기능을 구현하는 데서 끝내지 않고, **Kafka 이벤트가 Producer → Broker → Consumer → 재고 반영까지 어느 단계에서 처리되고 있는지 화면에서 추적**할 수 있도록 확장한 프로젝트입니다.
+
+`Java 11` `Spring Boot 2.4.2` `Spring Cloud 2020.0` `Kafka` `MariaDB` `Next.js 16` `Docker Compose` `ELK`
 
 ---
 
 ## 프로젝트 출처와 범위
 
-이 프로젝트는 이도원 강사님의 인프런 강의 *Spring Cloud로 개발하는 마이크로서비스 애플리케이션(MSA)* 의
-예제 코드([joneconsulting/msa_with_spring_cloud](https://github.com/joneconsulting/msa_with_spring_cloud))를
-**학습 출발점으로 삼아**, 아래 항목을 직접 설계하고 구현한 결과물입니다.
+이 프로젝트는 이도원 강사님의 인프런 강의  
+**Spring Cloud로 개발하는 마이크로서비스 애플리케이션(MSA)** 예제 코드를 학습 출발점으로 사용했습니다.
 
-| 영역 | 강의 예제 (기반) | 직접 구현 |
+- Original Repository: [joneconsulting/msa_with_spring_cloud](https://github.com/joneconsulting/msa_with_spring_cloud)
+
+강의 예제를 그대로 재사용한 포트폴리오가 아니라, 기존 코드를 분석한 뒤 다음 기능을 직접 설계하고 확장했습니다.
+
+| 영역 | 강의 예제 기반 | 현재 프로젝트 확장 |
 |---|---|---|
-| 데이터 | H2 인메모리 | MariaDB 영속화, 초기 데이터 시딩 |
-| 인증/인가 | JWT 발급 + 게이트웨이에서 토큰 유효성만 확인 | **Role 기반 인가**, 라우트별 권한 분리, 사용자 정보 헤더 전파 |
-| Kafka | 주문 → 재고 수량 동기화 예제 | **이벤트 단계별 추적 로그**, **주문 취소 보상 이벤트(재고 복원)** |
-| 관측 | 없음 | **Kafka Event Flow Monitor**, System Monitor, ELK 중앙 로그 수집 1차 구성 |
-| 화면 | 없음 | **Next.js 16 App Router 기반 사용자/관리자 UI 전체** |
+| 데이터 | H2 인메모리 DB | **MariaDB 영속화**, 초기 데이터 시딩 |
+| 인증 | JWT 발급/검증 | **Role 기반 인증/인가**, Gateway Route 권한 분리 |
+| 사용자 권한 | 토큰 유효성 중심 | `ROLE_USER`, `ROLE_ADMIN`, 본인 소유권 검증 |
+| Kafka | 주문 → 재고 차감 | **Event ID 기반 처리 단계 추적**, 취소 보상 이벤트 |
+| 재고 | 주문 시 감소 | 주문 취소 시 **ORDER_CANCELLED → 재고 복원** |
+| 관측 | 기본 로그 | **Kafka Event Flow Monitor**, System Monitor |
+| 로그 | 서비스별 콘솔 | **ELK 중앙 로그 수집 1차 구성** |
+| 화면 | 별도 UI 없음 | **Next.js 16 App Router 사용자/관리자 UI** |
+| 실행 | 서비스 개별 실행 | **전체 Docker Compose 실행 구성 + IntelliJ 개발 모드 병행** |
 
-기존 강의 예제 중 현재 플랫폼 실행과 직접 관련 없는 일부 실습 모듈과 교안 자료는 아직 저장소에 남아 있으며, 기능 안정화 후 별도 정리할 예정입니다.
+> 현재 저장소에는 강의 실습 과정에서 사용했던 일부 레거시 모듈과 설정이 남아 있습니다. 기능 안정화 후 단계적으로 정리할 예정입니다.
 
 ---
 
-## 아키텍처
+# Architecture
 
 ```mermaid
 flowchart LR
-    UI["Next.js 16 UI<br/>사용자 · 관리자 · 모니터"]
+    USER["Browser"]
+    NEXT["Next.js 16<br/>:3300"]
 
-    subgraph SC["Spring Cloud"]
+    subgraph CLOUD["Spring Cloud"]
+        direction LR
+
         GW["API Gateway<br/>:8000"]
+
+        subgraph SERVICES["Microservices"]
+            direction TB
+            US["user-service<br/>:9001"]
+            CS["catalog-service<br/>:9002"]
+            OS["order-service<br/>:9003"]
+        end
+
         EU["Eureka<br/>:8761"]
-        US["user-service<br/>:9001"]
-        CS["catalog-service<br/>:9002"]
-        OS["order-service<br/>:9003"]
     end
 
-    KAFKA[("Kafka<br/>example-catalog-topic")]
     DB[("MariaDB<br/>msa_ecommerce")]
+    KAFKA[("Kafka<br/>example-catalog-topic")]
 
-    UI -->|"/api/** rewrite"| GW
+    subgraph OBS["Observability"]
+        direction LR
+        FB["Filebeat"]
+        LS["Logstash"]
+        ES["Elasticsearch"]
+        KB["Kibana"]
+
+        FB --> LS --> ES --> KB
+    end
+
+    USER --> NEXT
+    NEXT -->|"/api/**"| GW
+
     GW --> US
     GW --> CS
     GW --> OS
-    US -.->|"Feign"| OS
-    US & CS & OS -.->|"등록 · 조회"| EU
-    GW -.->|"조회"| EU
-    OS -->|"produce"| KAFKA
-    KAFKA -->|"consume"| CS
-    US & CS & OS --> DB
+
+    US -.->|Feign| OS
+
+    US -.-> EU
+    CS -.-> EU
+    OS -.-> EU
+    GW -.-> EU
+
+    US --> DB
+    CS --> DB
+    OS --> DB
+
+    OS -->|"ORDER_CREATED<br/>ORDER_CANCELLED"| KAFKA
+    KAFKA -->|consume| CS
+
+    US -. logs .-> FB
+    CS -. logs .-> FB
+    OS -. logs .-> FB
+    GW -. logs .-> FB
 ```
 
-- 모든 외부 요청은 **API Gateway 단일 진입점**을 통과합니다.
-- 서비스 간 위치는 **Eureka**로 해석하고, 게이트웨이는 `lb://` 로 라우팅합니다.
-- 주문과 재고는 **동기 호출이 아니라 Kafka 이벤트**로 연결해 서비스 간 결합을 끊었습니다.
+### 핵심 설계
+
+- 외부 요청은 **API Gateway 단일 진입점**을 사용합니다.
+- 서비스 위치는 **Eureka Service Discovery**로 조회합니다.
+- Gateway는 `lb://SERVICE-NAME` 방식으로 각 서비스에 라우팅합니다.
+- 주문과 재고는 직접 동기 호출하지 않고 **Kafka 이벤트 기반 비동기 처리**를 사용합니다.
+- Gateway가 인증 사용자 정보를 검증한 뒤 `X-Auth-User-Id`, `X-Auth-User-Role` 헤더를 다시 생성해 하위 서비스로 전달합니다.
+- 하위 서비스에서도 사용자 소유권을 다시 검증해 **본인 또는 관리자만 접근**하도록 구성했습니다.
 
 ---
 
-## 핵심 흐름: 주문 → 재고 차감 → 취소 보상
+# Core Flow
+
+## 주문 생성 → Kafka → 재고 차감
 
 ```mermaid
 sequenceDiagram
-    participant U as 사용자
+    participant U as User
     participant GW as API Gateway
     participant OS as order-service
     participant K as Kafka
     participant CS as catalog-service
 
     U->>GW: POST /order-service/{userId}/orders
-    GW->>GW: JWT 검증 + Role 확인
-    GW->>OS: 주문 요청
-    OS->>OS: 주문 저장 · ORDER_STORED 기록
-    OS->>K: ORDER_CREATED 발행 · PRODUCER_SEND 기록
-    K-->>OS: ack · BROKER_ACK(topic/partition/offset) 기록
-    OS-->>U: 201 Created (X-Kafka-Event-Id)
-    K->>CS: ORDER_CREATED 수신 · CONSUMED 기록
-    CS->>CS: 재고 차감 · INVENTORY_UPDATED(before → after) 기록
+    GW->>GW: JWT / Role / User 검증
+    GW->>OS: 인증 Header 전달
 
-    Note over U,CS: 관리자가 주문을 취소하면
-    U->>GW: DELETE /order-service/orders/{orderId}
-    GW->>OS: 취소 요청 (ROLE_ADMIN)
-    OS->>K: ORDER_CANCELLED 발행
-    K->>CS: 수신 → 재고 복원 · INVENTORY_RESTORED 기록
+    OS->>OS: 주문 저장 + ORDER_STORED
+    OS->>K: ORDER_CREATED
+    OS->>OS: PRODUCER_SEND
+
+    K-->>OS: Broker Ack
+    OS->>OS: BROKER_ACK<br/>partition / offset
+
+    OS-->>U: 201 Created<br/>X-Kafka-Event-Id
+
+    K->>CS: ORDER_CREATED
+    CS->>CS: CONSUMED
+    CS->>CS: 재고 차감<br/>INVENTORY_UPDATED
 ```
 
-**이벤트 로그를 남긴 이유** — 비동기 처리는 "요청은 성공했는데 반영이 안 됐다"는 상황을 디버깅하기가 어렵습니다.
-그래서 발행 측(`ORDER_STORED → PRODUCER_SEND → BROKER_ACK`)과 소비 측(`CONSUMED → INVENTORY_UPDATED`)의
-각 단계를 파티션·오프셋·재고 변화(before → after)와 함께 DB에 적재하고, 화면에서 이벤트 ID로 추적할 수 있게 했습니다.
-재고 부족이나 상품 없음 같은 실패는 `CONSUMER_ERROR` 로 남아 원인이 화면에 그대로 보입니다.
+Kafka 처리 단계:
+
+```text
+ORDER_STORED
+    ↓
+PRODUCER_SEND
+    ↓
+BROKER_ACK
+    ↓
+CONSUMED
+    ↓
+INVENTORY_UPDATED
+```
 
 ---
 
-## 화면
+## 주문 취소 → Kafka 보상 이벤트 → 재고 복원
 
-| 스토어 | Kafka Event Flow Monitor | 관리자 콘솔 |
-|---|---|---|
-| <!-- TODO: docs/screenshot-store.png --> | <!-- TODO: docs/screenshot-kafka.png --> | <!-- TODO: docs/screenshot-admin.png --> |
+관리자가 주문을 취소하면 단순 DB 삭제로 끝내지 않고 Kafka 보상 이벤트를 발생시킵니다.
 
-> 스크린샷은 `docs/` 에 넣고 위 표에 연결하세요. (README에서 제일 먼저 보게 되는 부분입니다)
+```text
+ORDER_DELETED
+    ↓
+PRODUCER_SEND
+    ↓
+BROKER_ACK
+    ↓
+CONSUMED
+    ↓
+INVENTORY_RESTORED
+```
+
+Event Type:
+
+```text
+ORDER_CANCELLED
+```
+
+Catalog Consumer가 취소 수량을 다시 더해 재고를 복원합니다.
 
 ---
 
-## 인증 / 인가
+# Kafka Event Flow Monitor
 
-로그인 시 발급되는 JWT에 `role` 클레임을 담고, **게이트웨이에서 라우트별로 요구 권한을 검사**합니다.
-검증을 통과한 요청에는 `X-Auth-User-Id`, `X-Auth-User-Role` 헤더를 게이트웨이에서 덮어써 하위 서비스로 전달합니다. 사용자 상세/주문 API는 하위 서비스에서도 path의 `userId`와 인증 사용자를 다시 대조해 **본인 또는 관리자만 접근**할 수 있게 했습니다.
+비동기 시스템은 요청 자체가 성공하더라도 실제 Consumer 처리까지 정상 완료됐는지 확인하기 어렵습니다.
 
-| 엔드포인트 | 권한 |
+이를 확인하기 위해 `eventId` 단위로 다음 정보를 저장합니다.
+
+```text
+eventId
+eventType
+stage
+topic
+partition
+offset
+messageKey
+consumerGroup
+orderId
+productId
+beforeStock
+afterStock
+payload
+status
+createdAt
+errorMessage
+```
+
+화면에서는 최근 Kafka Event를 선택해 과거 처리 흐름도 다시 확인할 수 있습니다.
+
+```text
+최근 Kafka Event 클릭
+        ↓
+eventId 선택
+        ↓
+Topic / Partition / Offset 변경
+        ↓
+Event Timeline 변경
+        ↓
+Kafka JSON Payload 변경
+```
+
+재고 부족, 상품 없음 등의 Consumer 처리 오류는 `CONSUMER_ERROR`로 기록해 원인을 확인할 수 있도록 했습니다.
+
+---
+
+# Authentication / Authorization
+
+로그인 성공 시 JWT를 발급합니다.
+
+JWT 주요 정보:
+
+```text
+subject = userId
+role    = ROLE_USER / ROLE_ADMIN
+```
+
+Gateway는 요청 경로별로 JWT와 Role을 검증합니다.
+
+검증된 사용자 정보는 클라이언트가 임의로 조작할 수 없도록 기존 Header를 제거한 뒤 Gateway가 다시 생성합니다.
+
+```text
+X-Auth-User-Id
+X-Auth-User-Role
+```
+
+### 주요 권한
+
+| Endpoint | 권한 |
 |---|---|
-| `POST /user-service/login`, `POST /user-service/users` | 공개 |
-| `GET /catalog-service/catalogs`, `GET /catalog-service/kafka/events` | 공개 |
-| `POST /order-service/{userId}/orders`, `GET /order-service/{userId}/orders` | 로그인 + 본인 또는 관리자 |
-| `GET /user-service/users`, `PUT · DELETE /user-service/users/**` | `ROLE_ADMIN` |
-| `POST · PUT · DELETE /catalog-service/catalogs/**` | `ROLE_ADMIN` |
-| `GET /order-service/orders`, `DELETE /order-service/orders/**` | `ROLE_ADMIN` |
+| `POST /user-service/login` | 공개 |
+| `POST /user-service/users` | 공개 |
+| `GET /catalog-service/catalogs` | 공개 |
+| `GET /catalog-service/kafka/events` | 공개 |
+| `POST /order-service/{userId}/orders` | 로그인 + 본인 또는 관리자 |
+| `GET /order-service/{userId}/orders` | 로그인 + 본인 또는 관리자 |
+| `GET /user-service/users` | `ROLE_ADMIN` |
+| `PUT /user-service/users/**` | `ROLE_ADMIN` |
+| `DELETE /user-service/users/**` | `ROLE_ADMIN` |
+| `POST /catalog-service/catalogs/**` | `ROLE_ADMIN` |
+| `PUT /catalog-service/catalogs/**` | `ROLE_ADMIN` |
+| `DELETE /catalog-service/catalogs/**` | `ROLE_ADMIN` |
+| `GET /order-service/orders` | `ROLE_ADMIN` |
+| `DELETE /order-service/orders/**` | `ROLE_ADMIN` |
 
-회원가입 시 role은 서버가 `ROLE_USER`로 고정합니다(요청 본문의 role은 무시). `user-service → order-service` Feign 주문 조회는 외부 Gateway Route에 노출하지 않는 `/order-service/internal/{userId}/orders` 내부 경로를 사용합니다.
+회원가입 요청에서 Role을 넘기더라도 서버에서 강제로:
+
+```text
+ROLE_USER
+```
+
+로 설정합니다.
+
+`user-service → order-service` Feign 조회는 외부 Gateway Route에 노출하지 않는 내부 Endpoint를 사용합니다.
+
+```text
+/order-service/internal/{userId}/orders
+```
 
 ---
 
-## 실행 방법
+# UI
 
-### 1. 인프라 기동
+현재 주요 화면:
 
-```bash
-# MariaDB
-docker run -d --name msa-mariadb -p 3306:3306 \
-  -e MARIADB_ROOT_PASSWORD=root1234 \
-  -e MARIADB_DATABASE=msa_ecommerce \
-  -e MARIADB_USER=msa -e MARIADB_PASSWORD=msa1234 \
-  mariadb:10.11
+```text
+쇼핑몰
+├─ 메인
+├─ 상품
+├─ 장바구니
+└─ 주문내역
 
-# Kafka + Zookeeper
-docker compose -f docker-files/docker-compose-kafka.yml up -d
+관리자
+├─ Dashboard
+├─ 사용자 관리
+├─ 상품 관리
+└─ 주문 관리
+
+System Monitor
+├─ Kafka Live Flow
+└─ Service 상태
 ```
 
-### 2. 환경 변수
+스크린샷은 추후 `docs/` 디렉터리에 추가할 예정입니다.
 
-```bash
-export JWT_SECRET=$(openssl rand -base64 64 | tr -d '\n')
-export DB_PASSWORD=msa1234
+예정 파일:
+
+```text
+docs/
+├─ screenshot-store.png
+├─ screenshot-kafka.png
+├─ screenshot-admin.png
+└─ screenshot-system-monitor.png
 ```
 
-> `JWT_SECRET`을 지정하지 않으면 로컬 개발용 기본값으로 뜹니다. 공개 환경에서는 반드시 지정하세요.
+---
 
-### 3. 서비스 기동 (순서 중요)
+# Run Mode
 
-```bash
-cd discoveryservice   && ./mvnw spring-boot:run   # :8761
-cd apigateway-service && ./mvnw spring-boot:run   # :8000
-cd user-service       && ./mvnw spring-boot:run   # :9001
-cd catalog-service    && ./mvnw spring-boot:run   # :9002
-cd order-service      && ./mvnw spring-boot:run   # :9003
+현재 프로젝트는 두 가지 실행 방식을 지원하도록 구성합니다.
+
+## 1. Full Docker Mode
+
+통합 테스트 / 시연 / 포트폴리오 실행용입니다.
+
+```powershell
+cd D:\SpringCloud
+
+docker compose -f docker-compose.full.yml up -d --build
 ```
 
-### 4. 프론트엔드
+주요 Container:
 
-```bash
+```text
+msa-mariadb
+msa-zookeeper
+msa-kafka
+msa-discoveryservice
+msa-user-service
+msa-catalog-service
+msa-order-service
+msa-apigateway-service
+msa-frontend
+msa-elasticsearch
+msa-logstash
+msa-filebeat
+msa-kibana
+```
+
+> 전체 Docker Compose 구성은 적용되어 있으며 현재 최종 통합 기동/Healthcheck 검증을 진행 중입니다.
+
+상태 확인:
+
+```powershell
+docker compose -f docker-compose.full.yml ps
+```
+
+종료:
+
+```powershell
+docker compose -f docker-compose.full.yml down
+```
+
+일반적인 종료 시에는 DB/Elasticsearch 데이터를 보호하기 위해 `down -v`를 사용하지 않습니다.
+
+---
+
+## 2. IntelliJ Development Mode
+
+개발 중에는 다음처럼 사용할 수 있습니다.
+
+```text
+Docker
+├─ MariaDB
+├─ ZooKeeper
+├─ Kafka
+└─ ELK
+
+IntelliJ
+├─ discoveryservice
+├─ user-service
+├─ catalog-service
+├─ order-service
+└─ apigateway-service
+
+PowerShell
+└─ Next.js
+```
+
+Spring 코드를 수정할 때마다 Docker Image를 다시 Build할 필요가 없어 개발에 편리합니다.
+
+### IntelliJ 실행 주소
+
+```text
+MariaDB → localhost:3306
+Kafka   → localhost:9092
+Eureka  → localhost:8761
+```
+
+### Docker Container 내부 주소
+
+```text
+MariaDB → mariadb:3306
+Kafka   → kafka:29092
+Eureka  → discoveryservice:8761
+```
+
+Spring 설정은 환경변수를 사용해 두 실행 방식을 모두 지원합니다.
+
+---
+
+# Local Development
+
+## Requirements
+
+```text
+Windows 11
+JDK 11
+Docker Desktop
+Node.js
+IntelliJ IDEA
+```
+
+Java 확인:
+
+```powershell
+java -version
+```
+
+이 프로젝트는 현재:
+
+```text
+Java 11
+Spring Boot 2.4.2
+Spring Cloud 2020.0
+```
+
+기준입니다.
+
+JDK 25 등 최신 JDK로 Maven Build 시 기존 Lombok 버전과 Compiler 호환 문제가 발생할 수 있으므로 JDK 11을 사용합니다.
+
+---
+
+## Infrastructure
+
+개발 모드에서는 MariaDB / Kafka / ELK를 Docker로 실행합니다.
+
+Kafka Topic:
+
+```text
+example-catalog-topic
+```
+
+Kafka Host 접속:
+
+```text
+localhost:9092
+```
+
+Docker 내부 접속:
+
+```text
+kafka:29092
+```
+
+---
+
+## Spring Service 실행 순서
+
+개발 모드 권장 순서:
+
+```text
+1. MariaDB
+2. Kafka / ZooKeeper
+3. Eureka
+4. User Service
+5. Catalog Service
+6. Order Service
+7. API Gateway
+8. Next.js
+9. ELK
+```
+
+Spring 서비스:
+
+```text
+discoveryservice   :8761
+user-service       :9001
+catalog-service    :9002
+order-service      :9003
+apigateway-service :8000
+```
+
+---
+
+## Next.js
+
+```powershell
 cd msa-react-test-ui
-cp .env.local.example .env.local
+
 npm install
-npm run dev            # http://localhost:3000
+npm run dev
 ```
 
-### 5. 테스트 계정
+Windows 환경에서 `3000` 포트가 예약 범위에 포함될 수 있어 현재 개발 포트는 `3300` 사용을 권장합니다.
 
-| 계정 | 비밀번호 | 권한 |
+```powershell
+npx next dev --port 3300
+```
+
+접속:
+
+```text
+http://localhost:3300
+```
+
+Next.js는 `/api/*` 요청을 Gateway로 Rewrite합니다.
+
+```text
+Browser
+  ↓
+/api/*
+  ↓
+API Gateway :8000
+```
+
+---
+
+# Test Account
+
+| 계정 | 비밀번호 | Role |
 |---|---|---|
 | `admin@test.com` | `admin1234` | `ROLE_ADMIN` |
 | `test@test.com` | `test1234` | `ROLE_USER` |
 
-### 6. (선택) ELK 중앙 로그 수집 1차 구성
-
-```bash
-docker compose -f infrastructure/elk/docker-compose-elk.yml up -d
-# Kibana: http://localhost:5601
-```
+> DB 초기화/Seed 상태에 따라 계정 존재 여부를 확인해야 합니다. 비밀번호는 BCrypt Hash 형태로 저장됩니다.
 
 ---
 
-## 프로젝트 구조
+# ELK
 
+로그 수집 구조:
+
+```text
+Spring Boot JSON Log
+        ↓
+Filebeat
+        ↓
+Logstash
+        ↓
+Elasticsearch
+        ↓
+Kibana
 ```
+
+기본 주소:
+
+```text
+Elasticsearch http://localhost:9200
+Kibana        http://localhost:5601
+Logstash      localhost:5044
+```
+
+Index Pattern:
+
+```text
+msa-market-logs-*
+```
+
+검색 예:
+
+```text
+service.name : "order-service"
+```
+
+```text
+service.name : "catalog-service"
+```
+
+```text
+message : *Kafka*
+```
+
+현재 ELK는 **1차 적용 상태**이며, 전체 Docker 환경에서 최종 통합 로그 수집을 계속 검증하고 있습니다.
+
+---
+
+# Project Structure
+
+```text
 .
-├── discoveryservice/       Eureka 서버
-├── apigateway-service/     Spring Cloud Gateway · JWT 인가 필터
-├── user-service/           회원 · 로그인 · JWT 발급 · Feign(주문 조회)
-├── catalog-service/        상품 · Kafka Consumer · 이벤트 로그 API
-├── order-service/          주문 · Kafka Producer · 이벤트 로그
-├── config-service/         Spring Cloud Config (선택)
-├── msa-react-test-ui/      Next.js 16 App Router UI
-├── infrastructure/elk/     Elasticsearch · Logstash · Kibana · Filebeat
-└── docker-files/           Kafka · MariaDB compose
+├─ discoveryservice/
+│  └─ Eureka Server
+│
+├─ apigateway-service/
+│  └─ Spring Cloud Gateway / JWT / Role Authorization
+│
+├─ user-service/
+│  └─ 회원 / 로그인 / JWT / Feign
+│
+├─ catalog-service/
+│  └─ 상품 / Kafka Consumer / Kafka Event Log
+│
+├─ order-service/
+│  └─ 주문 / Kafka Producer / Kafka Event Log
+│
+├─ msa-react-test-ui/
+│  └─ Next.js 16 App Router Frontend
+│
+├─ infrastructure/
+│  └─ elk/
+│     ├─ Elasticsearch
+│     ├─ Logstash
+│     ├─ Filebeat
+│     └─ Kibana
+│
+├─ docker-files/
+│  └─ 기존 개발용 MariaDB / Kafka Compose
+│
+├─ docker-compose.full.yml
+│  └─ 전체 시스템 Docker Compose
+│
+├─ MSA_MARKET_PLATFORM_DEVELOPER_GUIDE.md
+├─ MSA_MARKET_PLATFORM_DOCKER_INFRASTRUCTURE_GUIDE.md
+├─ MSA_MARKET_PLATFORM_FULL_DOCKER_GUIDE.md
+└─ README.md
 ```
 
 ---
 
-## 상세 문서
+# Documents
 
-- [개발자 가이드](./MSA_MARKET_PLATFORM_DEVELOPER_GUIDE.md) — 서비스별 설계, 구현 중 만난 문제와 해결 과정
-- [Docker 인프라 실행 가이드](./MSA_MARKET_PLATFORM_DOCKER_INFRASTRUCTURE_GUIDE.md) — 컨테이너 구성 상세
+- [개발자 가이드](./MSA_MARKET_PLATFORM_DEVELOPER_GUIDE.md)  
+  서비스 구조, 구현 내용, 주요 오류와 해결 과정
+
+- [Docker 인프라 가이드](./MSA_MARKET_PLATFORM_DOCKER_INFRASTRUCTURE_GUIDE.md)  
+  MariaDB / Kafka / ZooKeeper / ELK 개별 실행 및 점검
+
+- [전체 Docker 실행 가이드](./MSA_MARKET_PLATFORM_FULL_DOCKER_GUIDE.md)  
+  전체 서비스 Docker Compose 실행, Healthcheck, 장애 진단, IntelliJ 병행 실행
 
 ---
 
-## 알려진 한계와 다음 단계
+# Known Limitations / Next Step
 
-솔직하게 남겨둡니다. 포트폴리오 목적상 "다 했다"보다 "어디까지 했고 왜 그렇게 뒀는지"가 더 중요하다고 봤습니다.
+현재 프로젝트는 교육 예제를 기반으로 기능을 확장한 포트폴리오 프로젝트입니다.
 
-현재 `user-service → order-service` Feign 조회에는 **Resilience4J Circuit Breaker + fallback(빈 주문 목록)** 이 실제 적용되어 있습니다.
+완료되지 않은 부분도 명확하게 관리합니다.
 
-- [ ] **Spring Boot 3.x / Java 17 마이그레이션** — 현재 2.4.2 기반. `javax → jakarta`, Security 설정 방식 변경, jjwt 0.12 API 대응이 필요합니다.
-- [ ] **테스트 코드** — Kafka 재고 차감/복원/재고부족 시나리오부터 작성 예정.
-- [ ] **Consumer 멱등성** — 동일 이벤트 재소비 시 재고가 중복 반영될 수 있습니다. `eventId` 유니크 제약으로 방어할 계획입니다.
-- [ ] **`docker compose up` 원샷 기동** — 현재는 서비스를 개별 실행해야 합니다.
-- [ ] **하위 서비스 직접 호출 차단** — 게이트웨이를 우회한 직접 호출을 네트워크/IP 레벨에서 막아야 합니다.
+- [ ] **Full Docker 최종 통합 검증**
+  - 전체 Container Healthcheck
+  - Eureka 등록
+  - Gateway Route
+  - Frontend → Gateway 통합 확인
+
+- [ ] **Kafka Consumer 멱등성**
+  - 동일 `eventId` 재소비 시 재고 중복 반영 방지
+  - Event ID Unique / Processed Event 관리
+
+- [ ] **Transactional Outbox**
+  - Order DB Commit 성공 후 Kafka Publish 실패 시 데이터 불일치 가능성 보완
+
+- [ ] **Kafka Retry / DLT**
+  - Consumer 장애 시 재처리 전략 고도화
+
+- [ ] **테스트 코드**
+  - 주문
+  - 재고 차감
+  - 재고 복원
+  - 재고 부족
+  - Role / Ownership
+  - Kafka Event Flow
+
+- [ ] **서비스별 DB 분리**
+  - 현재 학습/포트폴리오 환경에서는 하나의 MariaDB Instance를 사용
+
+- [ ] **하위 서비스 직접 접근 차단**
+  - 운영 환경에서는 Gateway 외 직접 접근을 Network Level에서 차단
+
+- [ ] **Spring Boot 3.x / Java 17+ Migration**
+  - `javax → jakarta`
+  - Spring Security 구성 변경
+  - JWT Library API 변경 대응
+
+- [ ] **Legacy Module 정리**
+  - 강의 실습용 Config / Zuul / Demo Module 및 불필요 설정 제거
+
+---
+
+# Design Direction
+
+이 프로젝트의 목표는 새로운 Framework 자체를 보여주는 것이 아니라,
+
+```text
+기존 시스템 분석
+→ 구조 개선
+→ 인증/인가 강화
+→ 비동기 이벤트 적용
+→ 장애 추적 가능성 확보
+→ 운영 관측성 추가
+→ Docker 기반 실행 표준화
+```
+
+과정을 하나의 프로젝트에서 추적 가능하게 만드는 것입니다.
+
+특히 Kafka 비동기 처리에서:
+
+```text
+"메시지를 보냈다"
+```
+
+가 아니라
+
+```text
+"어떤 Event가
+어느 Partition / Offset에 저장됐고,
+Consumer가 언제 처리했고,
+실제 재고가 얼마에서 얼마로 변경됐는가"
+```
+
+까지 확인할 수 있도록 구성한 것이 이 프로젝트의 핵심입니다.

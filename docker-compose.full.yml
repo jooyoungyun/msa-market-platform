@@ -1,0 +1,319 @@
+name: msa-market-platform
+
+services:
+  mariadb:
+    image: mariadb:10.11
+    container_name: msa-mariadb
+    environment:
+      MARIADB_DATABASE: msa_ecommerce
+      MARIADB_USER: ${DB_USERNAME:-msa}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-msa1234}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root1234}
+      TZ: Asia/Seoul
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -uroot -p$$MARIADB_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+    networks: [msa-net]
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    container_name: msa-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    restart: unless-stopped
+    networks: [msa-net]
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: msa-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    networks: [msa-net]
+
+  discoveryservice:
+    build:
+      context: ./discoveryservice
+      dockerfile: Dockerfile
+    image: msa-market/discoveryservice:local
+    container_name: msa-discoveryservice
+    environment:
+      TZ: Asia/Seoul
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8761/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 25s
+    restart: unless-stopped
+    networks: [msa-net]
+
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    image: msa-market/user-service:local
+    container_name: msa-user-service
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      discoveryservice:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mariadb://mariadb:3306/msa_ecommerce
+      DB_USERNAME: ${DB_USERNAME:-msa}
+      DB_PASSWORD: ${DB_PASSWORD:-msa1234}
+      EUREKA_DEFAULT_ZONE: http://discoveryservice:8761/eureka
+      EUREKA_INSTANCE_HOSTNAME: user-service
+      JWT_SECRET: ${JWT_SECRET:-bXNhLW1hcmtldC1sb2NhbC1kZXYtc2VjcmV0LWRvLW5vdC11c2UtaW4tcHJvZHVjdGlvbi0xMjM0NTY3ODkw}
+      JWT_EXPIRATION_TIME: ${JWT_EXPIRATION_TIME:-86400000}
+      LOG_PATH: /app/logs
+      SERVICE_ENV: docker-local
+      TZ: Asia/Seoul
+    ports:
+      - "9001:9001"
+    volumes:
+      - ./runtime-logs/user-service:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9001/health_check >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    networks: [msa-net]
+
+  catalog-service:
+    build:
+      context: ./catalog-service
+      dockerfile: Dockerfile
+    image: msa-market/catalog-service:local
+    container_name: msa-catalog-service
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      discoveryservice:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mariadb://mariadb:3306/msa_ecommerce
+      DB_USERNAME: ${DB_USERNAME:-msa}
+      DB_PASSWORD: ${DB_PASSWORD:-msa1234}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_DEFAULT_ZONE: http://discoveryservice:8761/eureka
+      EUREKA_INSTANCE_HOSTNAME: catalog-service
+      LOG_PATH: /app/logs
+      SERVICE_ENV: docker-local
+      TZ: Asia/Seoul
+    ports:
+      - "9002:9002"
+    volumes:
+      - ./runtime-logs/catalog-service:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9002/catalog-service/health_check >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    networks: [msa-net]
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    image: msa-market/order-service:local
+    container_name: msa-order-service
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      discoveryservice:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mariadb://mariadb:3306/msa_ecommerce
+      DB_USERNAME: ${DB_USERNAME:-msa}
+      DB_PASSWORD: ${DB_PASSWORD:-msa1234}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_DEFAULT_ZONE: http://discoveryservice:8761/eureka
+      EUREKA_INSTANCE_HOSTNAME: order-service
+      LOG_PATH: /app/logs
+      SERVICE_ENV: docker-local
+      TZ: Asia/Seoul
+    ports:
+      - "9003:9003"
+    volumes:
+      - ./runtime-logs/order-service:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9003/order-service/health_check >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    networks: [msa-net]
+
+  apigateway-service:
+    build:
+      context: ./apigateway-service
+      dockerfile: Dockerfile
+    image: msa-market/apigateway-service:local
+    container_name: msa-apigateway-service
+    depends_on:
+      discoveryservice:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+    environment:
+      EUREKA_DEFAULT_ZONE: http://discoveryservice:8761/eureka
+      EUREKA_INSTANCE_HOSTNAME: apigateway-service
+      JWT_SECRET: ${JWT_SECRET:-bXNhLW1hcmtldC1sb2NhbC1kZXYtc2VjcmV0LWRvLW5vdC11c2UtaW4tcHJvZHVjdGlvbi0xMjM0NTY3ODkw}
+      LOG_PATH: /app/logs
+      SERVICE_ENV: docker-local
+      TZ: Asia/Seoul
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./runtime-logs/apigateway-service:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/actuator/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    networks: [msa-net]
+
+  frontend:
+    build:
+      context: ./msa-react-test-ui
+      dockerfile: Dockerfile
+      args:
+        GATEWAY_URL: http://apigateway-service:8000
+    image: msa-market/frontend:local
+    container_name: msa-frontend
+    depends_on:
+      apigateway-service:
+        condition: service_healthy
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      TZ: Asia/Seoul
+    ports:
+      - "3300:3000"
+    restart: unless-stopped
+    networks: [msa-net]
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.3
+    container_name: msa-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 45s
+    restart: unless-stopped
+    networks: [msa-net]
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:9.5.3
+    container_name: msa-logstash
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      LS_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    volumes:
+      - ./infrastructure/elk/logstash/pipeline:/usr/share/logstash/pipeline:ro
+    restart: unless-stopped
+    networks: [msa-net]
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:9.5.3
+    container_name: msa-filebeat
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    depends_on:
+      - logstash
+    volumes:
+      - ./infrastructure/elk/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./runtime-logs:/logs:ro
+      - filebeat-data:/usr/share/filebeat/data
+    restart: unless-stopped
+    networks: [msa-net]
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.5.3
+    container_name: msa-kibana
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    restart: unless-stopped
+    networks: [msa-net]
+
+volumes:
+  mariadb-data:
+  elasticsearch-data:
+  filebeat-data:
+
+networks:
+  msa-net:
+    name: msa-market-net
+    driver: bridge

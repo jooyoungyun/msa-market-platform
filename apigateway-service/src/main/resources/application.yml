@@ -163,13 +163,15 @@ spring:
             - AuthorizationHeaderFilter
 
 eureka:
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:127.0.0.1}
+    prefer-ip-address: false
+    instance-id: ${spring.application.name}:${server.port}
   client:
     register-with-eureka: true
     fetch-registry: true
     service-url:
-      defaultZone: http://127.0.0.1:8761/eureka
-  instance:
-    instance-id: ${spring.application.name}:${server.port}
+      defaultZone: ${EUREKA_DEFAULT_ZONE:http://127.0.0.1:8761/eureka}
 
 token:
   # jjwt 0.9.1 은 이 문자열을 Base64 로 해석한다.
@@ -181,3 +183,6 @@ management:
     web:
       exposure:
         include: health,info,metrics,prometheus
+  health:
+    rabbit:
+      enabled: false
