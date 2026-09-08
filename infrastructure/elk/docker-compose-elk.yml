@@ -1,0 +1,64 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.3
+    container_name: msa-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - msa-observability
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.5.3
+    container_name: msa-kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - msa-observability
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:9.5.3
+    container_name: msa-logstash
+    environment:
+      LS_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on:
+      - elasticsearch
+    networks:
+      - msa-observability
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:9.5.3
+    container_name: msa-filebeat
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ../..:/workspace:ro
+      - filebeat-data:/usr/share/filebeat/data
+    depends_on:
+      - logstash
+    networks:
+      - msa-observability
+
+volumes:
+  elasticsearch-data:
+  filebeat-data:
+
+networks:
+  msa-observability:
+    name: msa-observability

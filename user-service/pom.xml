@@ -112,6 +112,12 @@
             <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>co.elastic.logging</groupId>
+            <artifactId>logback-ecs-encoder</artifactId>
+            <version>1.8.0</version>
+        </dependency>
+
         <!-- zipkin -->
 <!--        <dependency>-->
 <!--            <groupId>org.springframework.cloud</groupId>-->

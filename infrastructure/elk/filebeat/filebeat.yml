@@ -1,0 +1,27 @@
+filebeat.inputs:
+  - type: filestream
+    id: msa-market-application-logs
+    enabled: true
+    paths:
+      - /workspace/**/logs/*.json
+    parsers:
+      - ndjson:
+          target: ""
+          overwrite_keys: true
+          add_error_key: true
+          expand_keys: true
+    fields:
+      labels.log_source: application
+    fields_under_root: true
+
+processors:
+  - add_fields:
+      target: labels
+      fields:
+        project: msa-market-platform
+        environment: local
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+logging.level: info

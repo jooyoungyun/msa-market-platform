@@ -44,6 +44,12 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bootstrap</artifactId>
         </dependency>
+
+        <dependency>
+            <groupId>co.elastic.logging</groupId>
+            <artifactId>logback-ecs-encoder</artifactId>
+            <version>1.8.0</version>
+        </dependency>
     </dependencies>
     <dependencyManagement>
         <dependencies>

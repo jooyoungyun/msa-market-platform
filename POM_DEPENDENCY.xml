@@ -1,0 +1,6 @@
+<!-- Add this dependency to apigateway-service, user-service, order-service and catalog-service -->
+<dependency>
+    <groupId>co.elastic.logging</groupId>
+    <artifactId>logback-ecs-encoder</artifactId>
+    <version>1.8.0</version>
+</dependency>

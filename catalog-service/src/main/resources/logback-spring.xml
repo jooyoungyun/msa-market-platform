@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <springProperty scope="context" name="SERVICE_NAME" source="spring.application.name" defaultValue="catalog-service"/>
+    <property name="LOG_PATH" value="${LOG_PATH:-logs}"/>
+    <property name="SERVICE_ENV" value="${SERVICE_ENV:-local}"/>
+
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%5p) %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} : %m%n%wEx</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="ECS_JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${SERVICE_NAME}.json</file>
+        <encoder class="co.elastic.logging.logback.EcsEncoder">
+            <serviceName>${SERVICE_NAME}</serviceName>
+            <serviceVersion>1.0</serviceVersion>
+            <serviceEnvironment>${SERVICE_ENV}</serviceEnvironment>
+            <includeOrigin>true</includeOrigin>
+            <additionalField>
+                <key>labels.project</key>
+                <value>msa-market-platform</value>
+            </additionalField>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/archive/${SERVICE_NAME}.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ECS_JSON_FILE"/>
+    </root>
+</configuration>
