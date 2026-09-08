@@ -26,6 +26,7 @@
         <option value="$PROJECT_DIR$/second-service/pom.xml" />
         <option value="$PROJECT_DIR$/user-service-no-config/pom.xml" />
         <option value="$PROJECT_DIR$/user-service-no-security/pom.xml" />
+        <option value="$PROJECT_DIR$/zuul-service/pom.xml" />
       </set>
     </option>
   </component>

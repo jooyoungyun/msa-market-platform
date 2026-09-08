@@ -8,13 +8,12 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="config-service" />
-        <module name="catalog-service" />
-        <module name="user-service" />
-        <module name="zuul-service" />
-        <module name="demo" />
         <module name="apigateway-service" />
+        <module name="catalog-service" />
         <module name="discoveryservice" />
+        <module name="user-service" />
         <module name="order-service" />
+        <module name="demo" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
@@ -23,6 +22,7 @@
       <module name="second-service" target="11" />
       <module name="user-service (1)" target="11" />
       <module name="user-service (2)" target="11" />
+      <module name="zuul-service" target="11" />
     </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">

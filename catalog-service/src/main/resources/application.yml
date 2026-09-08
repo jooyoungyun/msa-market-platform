@@ -1,14 +1,13 @@
 server:
   port: 9002
-
 spring:
   application:
     name: catalog-service
   datasource:
     driver-class-name: org.mariadb.jdbc.Driver
     url: jdbc:mariadb://localhost:3306/msa_ecommerce
-    username: msa
-    password: msa1234
+    username: ${DB_USERNAME:msa}
+    password: ${DB_PASSWORD:msa1234}
     initialization-mode: never
   jpa:
     hibernate:
@@ -20,11 +19,10 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.MariaDB103Dialect
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: catalog-service-group
       auto-offset-reset: earliest
-
 app:
   init-data:
     enabled: true
@@ -33,12 +31,15 @@ app:
 
 eureka:
   instance:
+    hostname: 127.0.0.1
+    prefer-ip-address: false
     instance-id: ${spring.application.name}:${server.port}
+
   client:
     register-with-eureka: true
     fetch-registry: true
     service-url:
-      defaultZone: http://127.0.0.1:8761/eureka
+      defaultZone: http://127.0.0.1:8761/eureka/
 
 logging:
   level:

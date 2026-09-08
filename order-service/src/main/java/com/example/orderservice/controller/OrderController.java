@@ -15,6 +15,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +24,10 @@ import java.util.List;
 @RequestMapping("/order-service")
 @Slf4j
 public class OrderController {
+    private static final String AUTH_USER_ID_HEADER = "X-Auth-User-Id";
+    private static final String AUTH_USER_ROLE_HEADER = "X-Auth-User-Role";
+    private static final String ROLE_ADMIN = "ROLE_ADMIN";
+
     private final Environment env;
     private final OrderService orderService;
     private final KafkaProducer kafkaProducer;
@@ -41,17 +46,19 @@ public class OrderController {
 
     @PostMapping("/{userId}/orders")
     public ResponseEntity<ResponseOrder> createOrder(@PathVariable("userId") String userId,
+                                                     @RequestHeader(value = AUTH_USER_ID_HEADER, required = false) String authUserId,
+                                                     @RequestHeader(value = AUTH_USER_ROLE_HEADER, required = false) String authUserRole,
                                                      @RequestBody RequestOrder orderDetails) {
+        requireOwnerOrAdmin(userId, authUserId, authUserRole);
+
         ModelMapper mapper = new ModelMapper();
         mapper.getConfiguration().setMatchingStrategy(MatchingStrategies.STRICT);
-
         OrderDto orderDto = mapper.map(orderDetails, OrderDto.class);
         orderDto.setUserId(userId);
         OrderDto createdOrder = orderService.createOrder(orderDto);
 
         String topic = env.getProperty("app.kafka.catalog-topic", "example-catalog-topic");
         String eventId = kafkaProducer.send(topic, createdOrder);
-
         ResponseOrder responseOrder = mapper.map(createdOrder, ResponseOrder.class);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .header("X-Kafka-Event-Id", eventId)
@@ -59,10 +66,20 @@ public class OrderController {
     }
 
     @GetMapping("/{userId}/orders")
-    public ResponseEntity<List<ResponseOrder>> getOrder(@PathVariable("userId") String userId) {
-        List<ResponseOrder> result = new ArrayList<>();
-        orderService.getOrdersByUserId(userId).forEach(v -> result.add(toResponse(v)));
-        return ResponseEntity.ok(result);
+    public ResponseEntity<List<ResponseOrder>> getOrder(@PathVariable("userId") String userId,
+                                                        @RequestHeader(value = AUTH_USER_ID_HEADER, required = false) String authUserId,
+                                                        @RequestHeader(value = AUTH_USER_ROLE_HEADER, required = false) String authUserRole) {
+        requireOwnerOrAdmin(userId, authUserId, authUserRole);
+        return ResponseEntity.ok(getOrdersByUserId(userId));
+    }
+
+    /**
+     * user-service Feign 전용 내부 API.
+     * Gateway의 외부 Route에 매핑하지 않는다.
+     */
+    @GetMapping("/internal/{userId}/orders")
+    public ResponseEntity<List<ResponseOrder>> getInternalOrders(@PathVariable("userId") String userId) {
+        return ResponseEntity.ok(getOrdersByUserId(userId));
     }
 
     @GetMapping("/orders")
@@ -82,6 +99,21 @@ public class OrderController {
         return ResponseEntity.accepted()
                 .header("X-Kafka-Event-Id", eventId)
                 .build();
+    }
+
+    private void requireOwnerOrAdmin(String requestedUserId, String authUserId, String authUserRole) {
+        if (authUserId == null || authUserId.trim().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "인증 사용자 정보가 없습니다.");
+        }
+        if (!ROLE_ADMIN.equals(authUserRole) && !requestedUserId.equals(authUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "다른 사용자의 주문에 접근할 수 없습니다.");
+        }
+    }
+
+    private List<ResponseOrder> getOrdersByUserId(String userId) {
+        List<ResponseOrder> result = new ArrayList<>();
+        orderService.getOrdersByUserId(userId).forEach(v -> result.add(toResponse(v)));
+        return result;
     }
 
     private ResponseOrder toResponse(OrderEntity entity) {

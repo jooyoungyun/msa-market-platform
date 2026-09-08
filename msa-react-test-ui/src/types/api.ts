@@ -67,6 +67,8 @@ export interface OrderCreateRequest {
 export interface LoginResult {
   token: string;
   userId: string;
+  role: string;
+  userName: string;
 }
 
 export interface KafkaEventLog {

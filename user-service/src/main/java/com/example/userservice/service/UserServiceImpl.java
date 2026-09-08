@@ -10,16 +10,18 @@ import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.modelmapper.convention.MatchingStrategies;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.client.circuitbreaker.CircuitBreaker;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
-import org.springframework.core.env.Environment;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,22 +30,17 @@ import java.util.UUID;
 public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final BCryptPasswordEncoder passwordEncoder;
-    private final Environment env;
-    private final RestTemplate restTemplate;
     private final OrderServiceClient orderServiceClient;
     private final CircuitBreakerFactory circuitBreakerFactory;
 
+    // 기존 코드에 주입만 되고 한 번도 쓰이지 않던 Environment, RestTemplate 은 제거했다.
     @Autowired
     public UserServiceImpl(UserRepository userRepository,
                            BCryptPasswordEncoder passwordEncoder,
-                           Environment env,
-                           RestTemplate restTemplate,
                            OrderServiceClient orderServiceClient,
                            CircuitBreakerFactory circuitBreakerFactory) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
-        this.env = env;
-        this.restTemplate = restTemplate;
         this.orderServiceClient = orderServiceClient;
         this.circuitBreakerFactory = circuitBreakerFactory;
     }
@@ -52,8 +49,12 @@ public class UserServiceImpl implements UserService {
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         UserEntity userEntity = userRepository.findByEmail(username);
         if (userEntity == null) throw new UsernameNotFoundException(username + ": not found");
+
+        List<GrantedAuthority> authorities =
+                Collections.singletonList(new SimpleGrantedAuthority(userEntity.resolveRole()));
+
         return new User(userEntity.getEmail(), userEntity.getEncryptedPwd(),
-                true, true, true, true, new ArrayList<>());
+                true, true, true, true, authorities);
     }
 
     @Override
@@ -66,6 +67,10 @@ public class UserServiceImpl implements UserService {
         mapper.getConfiguration().setMatchingStrategy(MatchingStrategies.STRICT);
         UserEntity userEntity = mapper.map(userDto, UserEntity.class);
         userEntity.setEncryptedPwd(passwordEncoder.encode(userDto.getPwd()));
+
+        // 권한은 서버가 결정한다. 요청 본문으로 ROLE_ADMIN 을 밀어 넣는 권한 상승을 막기 위함.
+        userEntity.setRole(UserEntity.ROLE_USER);
+
         userRepository.save(userEntity);
         return mapper.map(userEntity, UserDto.class);
     }
@@ -75,7 +80,16 @@ public class UserServiceImpl implements UserService {
         UserEntity userEntity = userRepository.findByUserId(userId);
         if (userEntity == null) throw new UsernameNotFoundException("User not found: " + userId);
         UserDto userDto = new ModelMapper().map(userEntity, UserDto.class);
-        List<ResponseOrder> ordersList = orderServiceClient.getOrders(userId);
+
+        // order-service 장애가 회원 조회 장애로 번지지 않도록 서킷브레이커로 감싼다.
+        CircuitBreaker circuitBreaker = circuitBreakerFactory.create("orders");
+        List<ResponseOrder> ordersList = circuitBreaker.run(
+                () -> orderServiceClient.getOrders(userId),
+                throwable -> {
+                    log.warn("order-service 조회 실패, 빈 목록으로 대체합니다. userId={}", userId, throwable);
+                    return new ArrayList<ResponseOrder>();
+                });
+
         userDto.setOrders(ordersList);
         return userDto;
     }
@@ -91,7 +105,9 @@ public class UserServiceImpl implements UserService {
         if (userEntity == null) throw new UsernameNotFoundException(email);
         ModelMapper mapper = new ModelMapper();
         mapper.getConfiguration().setMatchingStrategy(MatchingStrategies.STRICT);
-        return mapper.map(userEntity, UserDto.class);
+        UserDto userDto = mapper.map(userEntity, UserDto.class);
+        userDto.setRole(userEntity.resolveRole());
+        return userDto;
     }
 
     @Override

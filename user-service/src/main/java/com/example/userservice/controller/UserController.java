@@ -15,6 +15,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +23,10 @@ import java.util.List;
 @RestController
 @RequestMapping("/")
 public class UserController {
+    private static final String AUTH_USER_ID_HEADER = "X-Auth-User-Id";
+    private static final String AUTH_USER_ROLE_HEADER = "X-Auth-User-Role";
+    private static final String ROLE_ADMIN = "ROLE_ADMIN";
+
     private final Environment env;
     private final UserService userService;
 
@@ -63,7 +68,10 @@ public class UserController {
     }
 
     @GetMapping("/users/{userId}")
-    public ResponseEntity<ResponseUser> getUser(@PathVariable("userId") String userId) {
+    public ResponseEntity<ResponseUser> getUser(@PathVariable("userId") String userId,
+                                                @RequestHeader(value = AUTH_USER_ID_HEADER, required = false) String authUserId,
+                                                @RequestHeader(value = AUTH_USER_ROLE_HEADER, required = false) String authUserRole) {
+        requireOwnerOrAdmin(userId, authUserId, authUserRole);
         return ResponseEntity.ok(new ModelMapper().map(userService.getUserByUserId(userId), ResponseUser.class));
     }
 
@@ -77,6 +85,15 @@ public class UserController {
     public ResponseEntity<Void> deleteUser(@PathVariable("userId") String userId) {
         userService.deleteUser(userId);
         return ResponseEntity.noContent().build();
+    }
+
+    private void requireOwnerOrAdmin(String requestedUserId, String authUserId, String authUserRole) {
+        if (authUserId == null || authUserId.trim().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "인증 사용자 정보가 없습니다.");
+        }
+        if (!ROLE_ADMIN.equals(authUserRole) && !requestedUserId.equals(authUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "다른 사용자의 정보에 접근할 수 없습니다.");
+        }
     }
 
     private ResponseUser toResponse(UserEntity entity) {

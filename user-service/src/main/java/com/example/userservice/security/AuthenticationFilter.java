@@ -1,6 +1,7 @@
 package com.example.userservice.security;
 
 import com.example.userservice.dto.UserDto;
+import com.example.userservice.jpa.UserEntity;
 import com.example.userservice.service.UserService;
 import com.example.userservice.vo.RequestLogin;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,6 +21,8 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Date;
 
@@ -63,8 +66,16 @@ public class AuthenticationFilter extends UsernamePasswordAuthenticationFilter {
                                             Authentication authResult) throws IOException, ServletException {
         String userName = ((User)authResult.getPrincipal()).getUsername();
         UserDto userDetails = userService.getUserDetailsByEmail(userName);
+
+        String role = (userDetails.getRole() == null || userDetails.getRole().trim().isEmpty())
+                ? UserEntity.ROLE_USER
+                : userDetails.getRole();
+
         String token = Jwts.builder()
                 .setSubject(userDetails.getUserId())
+                .claim("role", role)
+                .claim("email", userDetails.getEmail())
+                .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() +
                         Long.parseLong(env.getProperty("token.expiration_time"))))
                 .signWith(SignatureAlgorithm.HS512, env.getProperty("token.secret"))
@@ -72,5 +83,12 @@ public class AuthenticationFilter extends UsernamePasswordAuthenticationFilter {
 
         response.addHeader("token", token);
         response.addHeader("userId", userDetails.getUserId());
+        response.addHeader("role", role);
+        // 한글 이름이 헤더에 그대로 들어가면 깨지므로 URL 인코딩해서 내려보낸다.
+        // 프론트에서는 decodeURIComponent 로 복원한다.
+        response.addHeader("userName",
+                URLEncoder.encode(userDetails.getName() == null ? "" : userDetails.getName(), StandardCharsets.UTF_8));
+
+        log.info("로그인 성공 userId={}, role={}", userDetails.getUserId(), role);
     }
 }

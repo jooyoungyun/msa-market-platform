@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useMarket } from '@/context/MarketProvider';
 
 const items = [
   { href: '/admin', label: 'Dashboard', icon: '▦' },
@@ -12,6 +13,8 @@ const items = [
 
 export default function AdminNav() {
   const path = usePathname();
+  const { authReady, isAdmin } = useMarket();
+  if (!authReady || !isAdmin) return null;
   return <aside className="admin-sidebar next-admin-sidebar">
     {items.map(item => {
       const active = item.href === '/admin' ? path === '/admin' : path.startsWith(item.href);

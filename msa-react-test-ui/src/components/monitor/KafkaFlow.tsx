@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KafkaEventLog } from '@/types/api';
 
 type Props = {
@@ -46,15 +46,34 @@ export default function KafkaFlow({ events, autoRefresh, focusEventId, onToggleA
   }, [events]);
 
   const [selectedId, setSelectedId] = useState('');
+  const appliedFocusEventIdRef = useRef('');
 
   useEffect(() => {
-    if (focusEventId && groups.some(g => g.eventId === focusEventId)) {
+    if (!groups.length) {
+      setSelectedId('');
+      return;
+    }
+
+    // 주문 직후 전달된 focusEventId는 '새 값이 들어왔을 때 한 번만' 자동 선택한다.
+    // 기존 구현은 selectedId가 바뀔 때마다 focusEventId를 다시 선택해서
+    // 사용자가 최근 Kafka Events를 클릭해도 즉시 원래 이벤트로 되돌아가는 문제가 있었다.
+    if (
+      focusEventId &&
+      focusEventId !== appliedFocusEventIdRef.current &&
+      groups.some(group => group.eventId === focusEventId)
+    ) {
+      appliedFocusEventIdRef.current = focusEventId;
       setSelectedId(focusEventId);
       return;
     }
-    if (!selectedId && groups[0]) setSelectedId(groups[0].eventId);
-    if (selectedId && !groups.some(g => g.eventId === selectedId) && groups[0]) setSelectedId(groups[0].eventId);
-  }, [focusEventId, groups, selectedId]);
+
+    // 자동 새로고침으로 events/groups가 갱신되어도 사용자가 선택한 이벤트는 유지한다.
+    setSelectedId(current =>
+      current && groups.some(group => group.eventId === current)
+        ? current
+        : groups[0].eventId
+    );
+  }, [focusEventId, groups]);
 
   const selected = groups.find(g => g.eventId === selectedId) ?? groups[0];
   const selectedEvents = selected?.items ?? [];
@@ -184,7 +203,14 @@ export default function KafkaFlow({ events, autoRefresh, focusEventId, onToggleA
                   const ok = group.items.some(v => v.stage === 'INVENTORY_UPDATED' || v.stage === 'INVENTORY_RESTORED');
                   const err = group.items.some(v => v.status === 'ERROR');
                   return (
-                    <button className={group.eventId === selected?.eventId ? 'event-chip active' : 'event-chip'} key={group.eventId} onClick={() => setSelectedId(group.eventId)}>
+                    <button
+                      type="button"
+                      className={group.eventId === selected?.eventId ? 'event-chip active' : 'event-chip'}
+                      key={group.eventId}
+                      aria-pressed={group.eventId === selected?.eventId}
+                      title={`Kafka Event ${group.eventId}`}
+                      onClick={() => setSelectedId(group.eventId)}
+                    >
                       <i className={err ? 'err' : ok ? 'ok' : 'pending'} />
                       <span><strong>{item.productId}</strong><small>{fmtTime(item.createdAt)}</small></span>
                     </button>

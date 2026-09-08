@@ -14,7 +14,7 @@ const nav = [
 
 export default function Header() {
   const pathname = usePathname();
-  const { cartCount, login, currentUserName, logout } = useMarket();
+  const { cartCount, login, currentUserName, isAdmin, logout } = useMarket();
   const active = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href);
 
   return <>
@@ -22,7 +22,7 @@ export default function Header() {
       <div className="page-width top-strip-inner">
         <span>Spring Cloud MSA Demo Store · Next.js App Router</span>
         <div className="app-nav">
-          {nav.map(item => <Link key={item.href} className={active(item.href) ? 'link-button active' : 'link-button'} href={item.href}>{item.label}</Link>)}
+          {nav.filter(item => item.href !== '/admin' || isAdmin).map(item => <Link key={item.href} className={active(item.href) ? 'link-button active' : 'link-button'} href={item.href}>{item.label}</Link>)}
         </div>
       </div>
     </div>

@@ -7,10 +7,13 @@ import org.springframework.web.bind.annotation.PathVariable;
 
 import java.util.List;
 
-@FeignClient(name="order-service")
+@FeignClient(name = "order-service")
 public interface OrderServiceClient {
 
-    @GetMapping("/order-service/{userId}/orders")
-    List<ResponseOrder> getOrders(@PathVariable String userId);
-
+    /**
+     * user-service 전용 내부 조회 API.
+     * Gateway에는 이 경로를 노출하지 않으며 Eureka/Feign으로만 호출한다.
+     */
+    @GetMapping("/order-service/internal/{userId}/orders")
+    List<ResponseOrder> getOrders(@PathVariable("userId") String userId);
 }

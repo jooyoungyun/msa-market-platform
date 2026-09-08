@@ -6,6 +6,7 @@ import type { Catalog, KafkaEventLog, LoginRequest, LoginResult, Order, User } f
 
 type CartItem = Catalog & { qty: number };
 type Toast = { type: 'success' | 'error'; message: string } | null;
+const EMPTY_LOGIN: LoginResult = { token: '', userId: '', role: '', userName: '' };
 
 type MarketContextValue = {
   users: User[];
@@ -15,6 +16,8 @@ type MarketContextValue = {
   health: Record<string, string>;
   login: LoginResult;
   currentUserName: string;
+  authReady: boolean;
+  isAdmin: boolean;
   busy: boolean;
   apiLog: string;
   kafkaEvents: KafkaEventLog[];
@@ -50,8 +53,10 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [health, setHealth] = useState<Record<string, string>>({});
-  const [login, setLogin] = useState<LoginResult>({ token: '', userId: '' });
+  const [login, setLogin] = useState<LoginResult>(EMPTY_LOGIN);
   const [currentUserName, setCurrentUserName] = useState('');
+  const [authReady, setAuthReady] = useState(false);
+  const isAdmin = login.role === 'ROLE_ADMIN';
   const [busy, setBusy] = useState(false);
   const [apiLog, setApiLog] = useState('아직 실행된 API가 없습니다.');
   const [kafkaEvents, setKafkaEvents] = useState<KafkaEventLog[]>([]);
@@ -73,6 +78,11 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshUsers = useCallback(async () => {
+    const role = window.sessionStorage.getItem('msa_role') ?? '';
+    if (role !== 'ROLE_ADMIN') {
+      setUsers([]);
+      return [];
+    }
     const data = await api.users();
     setUsers(data);
     const userId = window.sessionStorage.getItem('msa_userId') ?? '';
@@ -122,11 +132,12 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const token = window.sessionStorage.getItem('msa_token') ?? '';
     const userId = window.sessionStorage.getItem('msa_userId') ?? '';
+    const role = window.sessionStorage.getItem('msa_role') ?? '';
     const userName = window.sessionStorage.getItem('msa_userName') ?? '';
     const savedCart = window.sessionStorage.getItem('msa_cart');
     const focus = window.sessionStorage.getItem('msa_kafka_focus') ?? '';
 
-    setLogin({ token, userId });
+    setLogin({ token, userId, role, userName });
     setCurrentUserName(userName);
     setFocusedKafkaEventIdState(focus);
     if (savedCart) {
@@ -137,9 +148,10 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
     void refreshCatalogs().catch(() => undefined);
     void refreshKafkaEvents().catch(() => undefined);
     if (token && userId) {
-      void refreshUsers().catch(() => undefined);
+      if (role === 'ROLE_ADMIN') void refreshUsers().catch(() => undefined);
       void refreshOrders(userId).catch(() => undefined);
     }
+    setAuthReady(true);
   }, [loadHealth, refreshCatalogs, refreshKafkaEvents, refreshOrders, refreshUsers]);
 
   useEffect(() => {
@@ -158,14 +170,22 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
       const result = await api.login(body);
       window.sessionStorage.setItem('msa_token', result.token);
       window.sessionStorage.setItem('msa_userId', result.userId);
+      window.sessionStorage.setItem('msa_role', result.role);
+      window.sessionStorage.setItem('msa_userName', result.userName);
       setLogin(result);
-      const [userData] = await Promise.all([
-        api.users().catch(() => [] as User[]),
-        refreshOrders(result.userId).catch(() => []),
-      ]);
-      setUsers(userData);
-      syncUserName(userData, result.userId);
-      setApiLog(`로그인 성공\n\nuserId=${result.userId}\ntoken=${result.token.slice(0, 40)}...`);
+      setCurrentUserName(result.userName);
+
+      if (result.role === 'ROLE_ADMIN') {
+        setUsers(await api.users().catch(() => [] as User[]));
+      } else {
+        setUsers([]);
+      }
+      await refreshOrders(result.userId).catch(() => []);
+      setApiLog(`로그인 성공
+
+userId=${result.userId}
+role=${result.role}
+token=${result.token.slice(0, 40)}...`);
       notify('success', '로그인되었습니다.');
       return result;
     } catch (e) {
@@ -176,11 +196,11 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setBusy(false);
     }
-  }, [notify, refreshOrders, syncUserName]);
+  }, [notify, refreshOrders]);
 
   const logout = useCallback(() => {
-    ['msa_token', 'msa_userId', 'msa_userName'].forEach(key => window.sessionStorage.removeItem(key));
-    setLogin({ token: '', userId: '' });
+    ['msa_token', 'msa_userId', 'msa_role', 'msa_userName'].forEach(key => window.sessionStorage.removeItem(key));
+    setLogin(EMPTY_LOGIN);
     setCurrentUserName('');
     setUsers([]);
     setOrders([]);
@@ -266,13 +286,13 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   const orderTotal = useMemo(() => orders.reduce((sum, item) => sum + (item.totalPrice ?? item.qty * item.unitPrice), 0), [orders]);
 
   const value = useMemo<MarketContextValue>(() => ({
-    users, catalogs, orders, cart, health, login, currentUserName, busy, apiLog, kafkaEvents, kafkaAutoRefresh,
+    users, catalogs, orders, cart, health, login, currentUserName, authReady, isAdmin, busy, apiLog, kafkaEvents, kafkaAutoRefresh,
     focusedKafkaEventId, toast, cartCount, cartTotal, orderTotal,
     refreshUsers, refreshCatalogs, refreshOrders, refreshKafkaEvents, loadHealth, clearKafkaEvents,
     loginUser, logout, addToCart, changeQty, removeFromCart, checkout, setApiLog, setFocusedKafkaEventId,
     setKafkaAutoRefresh, notify,
   }), [
-    users, catalogs, orders, cart, health, login, currentUserName, busy, apiLog, kafkaEvents, kafkaAutoRefresh,
+    users, catalogs, orders, cart, health, login, currentUserName, authReady, isAdmin, busy, apiLog, kafkaEvents, kafkaAutoRefresh,
     focusedKafkaEventId, toast, cartCount, cartTotal, orderTotal, refreshUsers, refreshCatalogs, refreshOrders,
     refreshKafkaEvents, loadHealth, clearKafkaEvents, loginUser, logout, addToCart, changeQty, removeFromCart,
     checkout, setFocusedKafkaEventId, notify,

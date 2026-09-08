@@ -54,8 +54,11 @@ export const api = {
     const response = await http.post('/api/user-service/login', body, { validateStatus: s => s >= 200 && s < 400 });
     const token = response.headers['token'] ?? '';
     const userId = response.headers['userid'] ?? response.headers['userId'] ?? '';
+    const role = response.headers['role'] ?? 'ROLE_USER';
+    const encodedUserName = response.headers['username'] ?? '';
+    const userName = encodedUserName ? decodeURIComponent(String(encodedUserName).replace(/\+/g, ' ')) : '';
     if (!token) throw new Error('로그인은 성공했지만 response header에서 token을 찾지 못했습니다.');
-    return { token, userId };
+    return { token, userId, role, userName };
   },
 
   async catalogs() { return (await http.get<Catalog[]>('/api/catalog-service/catalogs')).data; },

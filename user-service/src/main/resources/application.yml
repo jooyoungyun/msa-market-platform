@@ -1,6 +1,5 @@
 server:
   port: 9001
-
 spring:
   application:
     name: user-service
@@ -10,8 +9,8 @@ spring:
   datasource:
     driver-class-name: org.mariadb.jdbc.Driver
     url: jdbc:mariadb://localhost:3306/msa_ecommerce
-    username: msa
-    password: msa1234
+    username: ${DB_USERNAME:msa}
+    password: ${DB_PASSWORD:msa1234}
   jpa:
     hibernate:
       ddl-auto: update
@@ -39,8 +38,9 @@ gateway:
   ip: 127.0.0.1
 
 token:
-  expiration_time: 86400000
-  secret: msa_test_token_secret_2026
+  expiration_time: ${JWT_EXPIRATION_TIME:86400000}
+  # apigateway-service와 반드시 같은 값을 사용한다.
+  secret: ${JWT_SECRET:bXNhLW1hcmtldC1sb2NhbC1kZXYtc2VjcmV0LWRvLW5vdC11c2UtaW4tcHJvZHVjdGlvbi0xMjM0NTY3ODkw}
 
 greeting:
   message: Welcome to the Simple E-commerce.

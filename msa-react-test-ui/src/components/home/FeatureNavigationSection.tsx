@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { useMarket } from '@/context/MarketProvider';
 
 const FEATURES = [
   {
@@ -22,9 +25,11 @@ const FEATURES = [
 ] as const;
 
 export default function FeatureNavigationSection() {
+  const { isAdmin } = useMarket();
+  const visibleFeatures = FEATURES.filter(feature => feature.href !== '/admin' || isAdmin);
   return (
     <section className="page-width next-feature-grid">
-      {FEATURES.map(feature => (
+      {visibleFeatures.map(feature => (
         <Link key={feature.href} href={feature.href}>
           <span>{feature.label}</span>
           <strong>{feature.title}</strong>
