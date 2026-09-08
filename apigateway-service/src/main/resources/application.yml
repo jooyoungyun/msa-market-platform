@@ -1,110 +1,147 @@
 server:
   port: 8000
 
-eureka:
-  client:
-    register-with-eureka: true
-    fetch-registry: true
-    service-url:
-      defaultZone: http://localhost:8761/eureka
-
 spring:
   application:
     name: apigateway-service
-  rabbitmq:
-    host: 127.0.0.1
-    port: 5672
-    username: guest
-    password: guest
   cloud:
+    bus:
+      enabled: false
     gateway:
       default-filters:
         - name: GlobalFilter
           args:
-            baseMessage: Spring Cloud Gateway Global Filter
+            baseMessage: MSA Market Gateway
             preLogger: true
             postLogger: true
       routes:
-#        - id: user-service
-#          uri: lb://USER-SERVICE
-#          predicates:
-#            - Path=/user-service/**
-        - id: user-service
+        # 로그인: 공개
+        - id: user-login
           uri: lb://USER-SERVICE
           predicates:
             - Path=/user-service/login
             - Method=POST
           filters:
             - RemoveRequestHeader=Cookie
-            - RewritePath=/user-service/(?<segment>.*), /$\{segment}
-        - id: user-service
+            - RewritePath=/user-service/(?<segment>.*), /${segment}
+
+        # 회원가입: 공개
+        - id: user-create
           uri: lb://USER-SERVICE
           predicates:
             - Path=/user-service/users
             - Method=POST
           filters:
             - RemoveRequestHeader=Cookie
-            - RewritePath=/user-service/(?<segment>.*), /$\{segment}
-        - id: user-service
+            - RewritePath=/user-service/(?<segment>.*), /${segment}
+
+        # User Health: 로그인 전에도 공개
+        - id: user-health
           uri: lb://USER-SERVICE
           predicates:
-            - Path=/user-service/actuator/**
-            - Method=GET,POST
-          filters:
-            - RemoveRequestHeader=Cookie
-            - RewritePath=/user-service/(?<segment>.*), /$\{segment}
-        - id: user-service
-          uri: lb://USER-SERVICE
-          predicates:
-            - Path=/user-service/**
+            - Path=/user-service/health_check
             - Method=GET
           filters:
             - RemoveRequestHeader=Cookie
-            - RewritePath=/user-service/(?<segment>.*), /$\{segment}
+            - RewritePath=/user-service/(?<segment>.*), /${segment}
+
+        # User 관리자 수정: JWT 필요
+        - id: user-update
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/user-service/users/**
+            - Method=PUT
+          filters:
+            - RemoveRequestHeader=Cookie
+            - RewritePath=/user-service/(?<segment>.*), /${segment}
             - AuthorizationHeaderFilter
+
+        # User 관리자 삭제: JWT 필요
+        - id: user-delete
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/user-service/users/**
+            - Method=DELETE
+          filters:
+            - RemoveRequestHeader=Cookie
+            - RewritePath=/user-service/(?<segment>.*), /${segment}
+            - AuthorizationHeaderFilter
+
+        # User 목록 조회: JWT 필요
+        - id: user-list-get
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/user-service/users
+            - Method=GET
+          filters:
+            - RemoveRequestHeader=Cookie
+            - RewritePath=/user-service/(?<segment>.*), /${segment}
+            - AuthorizationHeaderFilter
+
+        # User 상세 조회: JWT 필요
+        - id: user-detail-get
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/user-service/users/**
+            - Method=GET
+          filters:
+            - RemoveRequestHeader=Cookie
+            - RewritePath=/user-service/(?<segment>.*), /${segment}
+            - AuthorizationHeaderFilter
+
+        # Catalog 관리자 쓰기: JWT 필요
+        - id: catalog-admin-write
+          uri: lb://CATALOG-SERVICE
+          predicates:
+            - Path=/catalog-service/catalogs,/catalog-service/catalogs/**
+            - Method=POST,PUT,DELETE
+          filters:
+            - AuthorizationHeaderFilter
+
+        # Catalog 조회/Kafka Monitor: 공개 Demo API
         - id: catalog-service
           uri: lb://CATALOG-SERVICE
           predicates:
             - Path=/catalog-service/**
-        - id: order-service
+
+        # Order 관리자 전체 조회: JWT 필요
+        - id: order-admin-list
           uri: lb://ORDER-SERVICE
           predicates:
-            - Path=/order-service/actuator/**
-            - Method=GET,POST
+            - Path=/order-service/orders
+            - Method=GET
           filters:
-            - RemoveRequestHeader=Cookie
-            - RewritePath=/order-service/(?<segment>.*), /$\{segment}
+            - AuthorizationHeaderFilter
+
+        # Order 관리자 취소/삭제: JWT 필요
+        - id: order-admin-delete
+          uri: lb://ORDER-SERVICE
+          predicates:
+            - Path=/order-service/orders/**
+            - Method=DELETE
+          filters:
+            - AuthorizationHeaderFilter
+
+        # 일반 주문 생성/사용자별 조회
         - id: order-service
           uri: lb://ORDER-SERVICE
           predicates:
             - Path=/order-service/**
-        - id: first-service
-          uri: lb://MY-FIRST-SERVICE
-          predicates:
-            - Path=/first-service/**
-          filters:
-            - AddRequestHeader=first-request, first-request-header2
-            - AddResponseHeader=first-response, first-response-header2
-#            - CustomFilter
-        - id: second-service
-          uri: lb://MY-SECOND-SERVICE
-          predicates:
-            - Path=/second-service/**
-          filters:
-            - AddRequestHeader=second-request, second-request-header2
-            - AddResponseHeader=second-response, second-response-header2
-#            - name: CustomFilter
-            - name: LoggingFilter
-              args:
-                baseMessage: Hi, there.
-                preLogger: true
-                postLogger: true
 
-#token:
-#  secret: user_token
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: http://127.0.0.1:8761/eureka
+  instance:
+    instance-id: ${spring.application.name}:${server.port}
+
+token:
+  secret: msa_test_token_secret_2026
 
 management:
   endpoints:
     web:
       exposure:
-        include: refresh, health, beans, httptrace, busrefresh, info, metrics, prometheus
+        include: health,info,metrics,prometheus

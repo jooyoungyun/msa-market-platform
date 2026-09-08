@@ -12,7 +12,7 @@ import java.util.UUID;
 
 @Service
 public class OrderServiceImpl implements OrderService {
-    OrderRepository orderRepository;
+    private final OrderRepository orderRepository;
 
     @Autowired
     public OrderServiceImpl(OrderRepository orderRepository) {
@@ -23,28 +23,39 @@ public class OrderServiceImpl implements OrderService {
     public OrderDto createOrder(OrderDto orderDto) {
         orderDto.setOrderId(UUID.randomUUID().toString());
         orderDto.setTotalPrice(orderDto.getQty() * orderDto.getUnitPrice());
-
         ModelMapper mapper = new ModelMapper();
         mapper.getConfiguration().setMatchingStrategy(MatchingStrategies.STRICT);
         OrderEntity orderEntity = mapper.map(orderDto, OrderEntity.class);
-
         orderRepository.save(orderEntity);
-
-        OrderDto returnValue = mapper.map(orderEntity, OrderDto.class);
-
-        return returnValue;
+        return mapper.map(orderEntity, OrderDto.class);
     }
 
     @Override
     public OrderDto getOrderByOrderId(String orderId) {
         OrderEntity orderEntity = orderRepository.findByOrderId(orderId);
-        OrderDto orderDto = new ModelMapper().map(orderEntity, OrderDto.class);
-
-        return orderDto;
+        if (orderEntity == null) throw new IllegalArgumentException("Order not found: " + orderId);
+        return new ModelMapper().map(orderEntity, OrderDto.class);
     }
 
     @Override
     public Iterable<OrderEntity> getOrdersByUserId(String userId) {
         return orderRepository.findByUserId(userId);
+    }
+
+    @Override
+    public Iterable<OrderEntity> getAllOrders() {
+        return orderRepository.findAll();
+    }
+
+    @Override
+    public OrderDto deleteOrder(String orderId) {
+        OrderEntity entity = orderRepository.findByOrderId(orderId);
+        if (entity == null) throw new IllegalArgumentException("Order not found: " + orderId);
+
+        ModelMapper mapper = new ModelMapper();
+        mapper.getConfiguration().setMatchingStrategy(MatchingStrategies.STRICT);
+        OrderDto deletedOrder = mapper.map(entity, OrderDto.class);
+        orderRepository.delete(entity);
+        return deletedOrder;
     }
 }

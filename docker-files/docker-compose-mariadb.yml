@@ -1,0 +1,19 @@
+services:
+  mariadb:
+    image: mariadb:10.11
+    container_name: msa-mariadb
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: root1234
+      MARIADB_DATABASE: msa_ecommerce
+      MARIADB_USER: msa
+      MARIADB_PASSWORD: msa1234
+      MARIADB_CHARACTER_SET_SERVER: utf8mb4
+      MARIADB_COLLATION_SERVER: utf8mb4_unicode_ci
+    volumes:
+      - msa-mariadb-data:/var/lib/mysql
+
+volumes:
+  msa-mariadb-data:

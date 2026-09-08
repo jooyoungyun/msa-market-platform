@@ -1,0 +1,31 @@
+# Java
+**/target/
+*.class
+
+# IntelliJ
+.idea/
+*.iml
+
+# Node / Next.js
+**/node_modules/
+**/.next/
+**/out/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database / Docker volumes
+data/
+mariadb-data/
+kafka-data/
+elasticsearch-data/

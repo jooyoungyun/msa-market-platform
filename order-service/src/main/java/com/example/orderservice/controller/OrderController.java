@@ -3,8 +3,8 @@ package com.example.orderservice.controller;
 import com.example.orderservice.dto.OrderDto;
 import com.example.orderservice.jpa.OrderEntity;
 import com.example.orderservice.messagequeue.KafkaProducer;
-import com.example.orderservice.messagequeue.OrderProducer;
 import com.example.orderservice.service.OrderService;
+import com.example.orderservice.vo.AdminOrderResponse;
 import com.example.orderservice.vo.RequestOrder;
 import com.example.orderservice.vo.ResponseOrder;
 import lombok.extern.slf4j.Slf4j;
@@ -18,79 +18,92 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/order-service")
 @Slf4j
 public class OrderController {
-    Environment env;
-    OrderService orderService;
-    KafkaProducer kafkaProducer;
-
-    OrderProducer orderProducer;
+    private final Environment env;
+    private final OrderService orderService;
+    private final KafkaProducer kafkaProducer;
 
     @Autowired
-    public OrderController(Environment env, OrderService orderService,
-                           KafkaProducer kafkaProducer, OrderProducer orderProducer) {
+    public OrderController(Environment env, OrderService orderService, KafkaProducer kafkaProducer) {
         this.env = env;
         this.orderService = orderService;
         this.kafkaProducer = kafkaProducer;
-        this.orderProducer = orderProducer;
     }
 
     @GetMapping("/health_check")
     public String status() {
-        return String.format("It's Working in Order Service on PORT %s",
-                env.getProperty("local.server.port"));
+        return String.format("It's Working in Order Service on PORT %s", env.getProperty("local.server.port"));
     }
 
     @PostMapping("/{userId}/orders")
     public ResponseEntity<ResponseOrder> createOrder(@PathVariable("userId") String userId,
                                                      @RequestBody RequestOrder orderDetails) {
-        log.info("Before add orders data");
         ModelMapper mapper = new ModelMapper();
         mapper.getConfiguration().setMatchingStrategy(MatchingStrategies.STRICT);
 
         OrderDto orderDto = mapper.map(orderDetails, OrderDto.class);
         orderDto.setUserId(userId);
-        /* jpa */
         OrderDto createdOrder = orderService.createOrder(orderDto);
+
+        String topic = env.getProperty("app.kafka.catalog-topic", "example-catalog-topic");
+        String eventId = kafkaProducer.send(topic, createdOrder);
+
         ResponseOrder responseOrder = mapper.map(createdOrder, ResponseOrder.class);
-
-        /* kafka */
-//        orderDto.setOrderId(UUID.randomUUID().toString());
-//        orderDto.setTotalPrice(orderDetails.getQty() * orderDetails.getUnitPrice());
-
-        /* send this order to the kafka */
-//        kafkaProducer.send("example-catalog-topic", orderDto);
-//        orderProducer.send("orders", orderDto);
-
-//        ResponseOrder responseOrder = mapper.map(orderDto, ResponseOrder.class);
-
-        log.info("After added orders data");
-        return ResponseEntity.status(HttpStatus.CREATED).body(responseOrder);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .header("X-Kafka-Event-Id", eventId)
+                .body(responseOrder);
     }
 
     @GetMapping("/{userId}/orders")
-    public ResponseEntity<List<ResponseOrder>> getOrder(@PathVariable("userId") String userId) throws Exception {
-        log.info("Before retrieve orders data");
-        Iterable<OrderEntity> orderList = orderService.getOrdersByUserId(userId);
-
+    public ResponseEntity<List<ResponseOrder>> getOrder(@PathVariable("userId") String userId) {
         List<ResponseOrder> result = new ArrayList<>();
-        orderList.forEach(v -> {
-            result.add(new ModelMapper().map(v, ResponseOrder.class));
-        });
+        orderService.getOrdersByUserId(userId).forEach(v -> result.add(toResponse(v)));
+        return ResponseEntity.ok(result);
+    }
 
-        try {
-            Thread.sleep(1000);
-            throw new Exception("장애 발생");
-        } catch(InterruptedException ex) {
-            log.warn(ex.getMessage());
-        }
+    @GetMapping("/orders")
+    public ResponseEntity<List<AdminOrderResponse>> getAllOrders() {
+        List<AdminOrderResponse> result = new ArrayList<>();
+        orderService.getAllOrders().forEach(v -> result.add(toAdminResponse(v)));
+        return ResponseEntity.ok(result);
+    }
 
-        log.info("Add retrieved orders data");
+    // Admin cancellation: delete order and publish compensating event.
+    // Catalog Consumer receives ORDER_CANCELLED and restores stock (stock + qty).
+    @DeleteMapping("/orders/{orderId}")
+    public ResponseEntity<Void> deleteOrder(@PathVariable("orderId") String orderId) {
+        OrderDto deletedOrder = orderService.deleteOrder(orderId);
+        String topic = env.getProperty("app.kafka.catalog-topic", "example-catalog-topic");
+        String eventId = kafkaProducer.sendCancellation(topic, deletedOrder);
+        return ResponseEntity.accepted()
+                .header("X-Kafka-Event-Id", eventId)
+                .build();
+    }
 
-        return ResponseEntity.status(HttpStatus.OK).body(result);
+    private ResponseOrder toResponse(OrderEntity entity) {
+        ResponseOrder response = new ResponseOrder();
+        response.setOrderId(entity.getOrderId());
+        response.setProductId(entity.getProductId());
+        response.setQty(entity.getQty());
+        response.setUnitPrice(entity.getUnitPrice());
+        response.setTotalPrice(entity.getTotalPrice());
+        response.setCreatedAt(entity.getCreatedAt());
+        return response;
+    }
+
+    private AdminOrderResponse toAdminResponse(OrderEntity entity) {
+        AdminOrderResponse response = new AdminOrderResponse();
+        response.setOrderId(entity.getOrderId());
+        response.setUserId(entity.getUserId());
+        response.setProductId(entity.getProductId());
+        response.setQty(entity.getQty());
+        response.setUnitPrice(entity.getUnitPrice());
+        response.setTotalPrice(entity.getTotalPrice());
+        response.setCreatedAt(entity.getCreatedAt());
+        return response;
     }
 }
